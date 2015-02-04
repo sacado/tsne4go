@@ -1,4 +1,4 @@
-package tsne
+package tsne4go
 
 import (
 	"fmt"

@@ -1,4 +1,4 @@
-package tsne
+package tsne4go
 
 // Distancer describes a collection of points from which a distance can be computed
 type Distancer interface {
