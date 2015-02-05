@@ -7,10 +7,12 @@ import (
 	"math/rand"
 	"runtime"
 	"sync"
+	"time"
 )
 
 func init() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
+	rand.Seed(time.Now().UnixNano())
 }
 
 // return 0 mean unit standard deviation random number

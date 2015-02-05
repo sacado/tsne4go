@@ -14,14 +14,20 @@ type TSne struct {
 	ystep      [][]float64
 }
 
-// this function takes a set of Distancer instances
+const (
+	defaultPerplexity = 30
+	defaultDim        = 2
+	defaultEpsilon    = 10
+)
+
+// NewTSne takes a set of Distancer instances
 // and creates matrix P from them using gaussian kernel
 func NewTSne(x Distancer) *TSne {
 	dists := xtod(x) // convert x to distances using gaussian kernel
 	tsne := &TSne{
-		30,                   // perplexity
-		2,                    // dim
-		10,                   // epsilon
+		defaultPerplexity,    // perplexity
+		defaultDim,           // dim
+		defaultEpsilon,       // epsilon
 		0,                    // iters
 		x.Len(),              //length
 		d2p(dists, 30, 1e-4), // probas
