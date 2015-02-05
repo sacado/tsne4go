@@ -5,7 +5,13 @@ package tsne4go
 import (
 	"math"
 	"math/rand"
+	"runtime"
+	"sync"
 )
+
+func init() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
+}
 
 // return 0 mean unit standard deviation random number
 func gaussRandom() float64 {
@@ -54,13 +60,19 @@ func fill2d(n, d int, val float64) [][]float64 {
 func xtod(x Distancer) []float64 {
 	length := x.Len()
 	dists := make([]float64, length*length) // allocate contiguous array
+	var wg sync.WaitGroup
 	for i := 0; i < length-1; i++ {
-		for j := i + 1; j < length; j++ {
-			d := x.Distance(i, j)
-			dists[i*length+j] = d
-			dists[j*length+i] = d
-		}
+		go func(i int) {
+			wg.Add(1)
+			for j := i + 1; j < length; j++ {
+				d := x.Distance(i, j)
+				dists[i*length+j] = d
+				dists[j*length+i] = d
+			}
+			wg.Done()
+		}(i)
 	}
+	wg.Wait()
 	return dists
 }
 

@@ -1,9 +1,6 @@
 package tsne4go
 
-import (
-	"fmt"
-	"math"
-)
+import "math"
 
 type TSne struct {
 	perplexity float64
@@ -21,7 +18,6 @@ type TSne struct {
 // and creates matrix P from them using gaussian kernel
 func NewTSne(x Distancer) *TSne {
 	dists := xtod(x) // convert x to distances using gaussian kernel
-	fmt.Printf("dists=%v\n", dists)
 	tsne := &TSne{
 		30,                   // perplexity
 		2,                    // dim
