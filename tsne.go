@@ -31,12 +31,12 @@ type TSne struct {
 	Meta []interface{}
 }
 
-// NewTSne takes a set of Distancer instances
+// New takes a set of Distancer instances
 // and creates matrix P from them using gaussian kernel
 // Meta-information is provided here
 // It is under the programmer's responsibility :
 // it can be nil if no meta information is needed, or anything else
-func NewTSne(x Distancer, meta []interface{}) *TSne {
+func New(x Distancer, meta []interface{}) *TSne {
 	dists := xtod(x) // convert x to distances using gaussian kernel
 	tsne := &TSne{
 		defaultPerplexity,    // perplexity
@@ -57,9 +57,9 @@ func NewTSne(x Distancer, meta []interface{}) *TSne {
 // (re)initializes the solution to random
 func (tsne *TSne) initSolution() {
 	// generate random solution to t-SNE
-	tsne.Solution = randn2d(tsne.length, tsne.dim)  // the solution
-	tsne.gains = fill2d(tsne.length, tsne.dim, 1.0) // step gains to accelerate progress in unchanging directions
-	tsne.ystep = fill2d(tsne.length, tsne.dim, 0.0) // momentum accumulator
+	tsne.Solution = randn2d(tsne.length)  // the solution
+	tsne.gains = fill2d(tsne.length, 1.0) // step gains to accelerate progress in unchanging directions
+	tsne.ystep = fill2d(tsne.length, 0.0) // momentum accumulator
 	tsne.iter = 0
 }
 
@@ -68,7 +68,8 @@ func (tsne *TSne) Step() float64 {
 	tsne.iter++
 	length := tsne.length
 	cost, grad := tsne.costGrad(tsne.Solution) // evaluate gradient
-	ymean := make([]float64, tsne.dim)
+	//ymean := make([]float64, tsne.dim)
+	var ymean [defaultDim]float64
 	var wg sync.WaitGroup
 	// perform gradient step
 	for i := 0; i < length; i++ {

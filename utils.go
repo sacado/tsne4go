@@ -34,11 +34,10 @@ func randn(mu, std float64) float64 {
 	return mu + gaussRandom()*std
 }
 
-// returns 2d array filled with random numbers
-func randn2d(n, d int) []Point {
+// returns a vector of n Point filled with random numbers
+func randn2d(n int) []Point {
 	res := make([]Point, n)
 	for i := range res {
-		//res[i] = make(Point, d)
 		for j := range res[i] {
 			res[i][j] = randn(0.0, 1e-4)
 		}
@@ -46,11 +45,10 @@ func randn2d(n, d int) []Point {
 	return res
 }
 
-// returns 2d array filled with 'val'
-func fill2d(n, d int, val float64) []Point {
+// returns a vector of n Point filled with 'val'
+func fill2d(n int, val float64) []Point {
 	res := make([]Point, n)
 	for i := range res {
-		//res[i] = make(Point, d)
 		for j := range res[i] {
 			res[i][j] = val
 		}
@@ -86,12 +84,7 @@ var (
 
 // compute (p_{i|j} + p_{j|i})/(2n)
 func d2p(D []float64, perplexity, tol float64) []float64 {
-	Nf := math.Sqrt(float64(len(D))) // this better be an integer
-	N := math.Floor(Nf)
-	if N != Nf {
-		panic("Should be a square")
-	}
-	length := int(N)
+	length := int(math.Sqrt(float64(len(D))))
 	Htarget := math.Log(perplexity)     // target entropy of distribution
 	P := make([]float64, length*length) // temporary probability matrix
 	prow := make([]float64, length)     // a temporary storage compartment
@@ -131,7 +124,7 @@ func d2p(D []float64, perplexity, tol float64) []float64 {
 				// so we need to increase the precision for more peaky distribution
 				betamin = beta // move up the bounds
 				if betamax == inf {
-					beta = beta * 2
+					beta *= 2
 				} else {
 					beta = (beta + betamax) / 2
 				}
@@ -160,9 +153,10 @@ func d2p(D []float64, perplexity, tol float64) []float64 {
 	} // end loop over examples i
 	// symmetrize P and normalize it to sum to 1 over all ij
 	Pout := make([]float64, length*length)
+	length2 := float64(length * 2)
 	for i := 0; i < length; i++ {
 		for j := 0; j < length; j++ {
-			Pout[i*length+j] = math.Max((P[i*length+j]+P[j*length+i])/float64(length*2), 1e-100)
+			Pout[i*length+j] = math.Max((P[i*length+j]+P[j*length+i])/length2, 1e-100)
 		}
 	}
 	return Pout
