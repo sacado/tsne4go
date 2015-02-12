@@ -6,28 +6,25 @@ import (
 )
 
 const (
-	defaultPerplexity = 30
-	defaultDim        = 2
-	defaultEpsilon    = 10 // was 10
+	perplexity = 30
+	nbDims     = 2
+	epsilon    = 10
 )
 
-type Point [defaultDim]float64
+type Point [nbDims]float64
 
 type TSne struct {
-	perplexity float64
-	dim        int
-	epsilon    float64
-	iter       int
-	length     int
-	probas     []float64
-	Solution   []Point
-	gains      []Point
-	ystep      []Point
+	iter int
+	// All subsequent vector should have 'length' elements
+	length   int
+	probas   []float64
+	Solution []Point
+	gains    []Point
+	ystep    []Point
 	// Meta-information about each point, if needed
 	// It is useful to associate, for instance, a label with each point
 	// The algorithm dosen't take this information into consideration
-	// It can be anything
-	// It can even be nil, if the user has no need for it
+	// It can be anything, even nil if the user has no need for it
 	Meta []interface{}
 }
 
@@ -38,29 +35,17 @@ type TSne struct {
 // it can be nil if no meta information is needed, or anything else
 func New(x Distancer, meta []interface{}) *TSne {
 	dists := xtod(x) // convert x to distances using gaussian kernel
+	length := x.Len()
 	tsne := &TSne{
-		defaultPerplexity,    // perplexity
-		defaultDim,           // dim
-		defaultEpsilon,       // epsilon
-		0,                    // iters
-		x.Len(),              //length
-		d2p(dists, 30, 1e-4), // probas
-		nil,                  // Solution
-		nil,                  // gains
-		nil,                  // ystep
-		meta,                 // Meta
+		0,      // iters
+		length, // length
+		d2p(dists, perplexity, 1e-4), // probas
+		randn2d(length),              // Solution
+		fill2d(length, 1.0),          // gains
+		fill2d(length, 0.0),          // ystep
+		meta,                         // Meta
 	}
-	tsne.initSolution() // refresh this
 	return tsne
-}
-
-// (re)initializes the solution to random
-func (tsne *TSne) initSolution() {
-	// generate random solution to t-SNE
-	tsne.Solution = randn2d(tsne.length)  // the solution
-	tsne.gains = fill2d(tsne.length, 1.0) // step gains to accelerate progress in unchanging directions
-	tsne.ystep = fill2d(tsne.length, 0.0) // momentum accumulator
-	tsne.iter = 0
 }
 
 // perform a single step of optimization to improve the embedding
@@ -68,15 +53,14 @@ func (tsne *TSne) Step() float64 {
 	tsne.iter++
 	length := tsne.length
 	cost, grad := tsne.costGrad(tsne.Solution) // evaluate gradient
-	//ymean := make([]float64, tsne.dim)
-	var ymean [defaultDim]float64
+	var ymean [nbDims]float64
 	var wg sync.WaitGroup
 	// perform gradient step
 	for i := 0; i < length; i++ {
 		go func(i int) {
 			wg.Add(1)
 			defer wg.Done()
-			for d := 0; d < tsne.dim; d++ {
+			for d := 0; d < nbDims; d++ {
 				gid := grad[i][d]
 				sid := tsne.ystep[i][d]
 				gainid := tsne.gains[i][d]
@@ -87,13 +71,11 @@ func (tsne *TSne) Step() float64 {
 					tsne.gains[i][d] = gainid + 0.2
 				}
 				// compute momentum step direction
-				var momval float64
+				momval := 0.8
 				if tsne.iter < 250 {
 					momval = 0.5
-				} else {
-					momval = 0.8
 				}
-				newsid := momval*sid - tsne.epsilon*tsne.gains[i][d]*grad[i][d]
+				newsid := momval*sid - epsilon*tsne.gains[i][d]*grad[i][d]
 				tsne.ystep[i][d] = newsid // remember the step we took
 				// step!
 				tsne.Solution[i][d] += newsid
@@ -104,7 +86,7 @@ func (tsne *TSne) Step() float64 {
 	wg.Wait()
 	// reproject Y to be zero mean
 	for i := 0; i < length; i++ {
-		for d := 0; d < tsne.dim; d++ {
+		for d := 0; d < nbDims; d++ {
 			tsne.Solution[i][d] -= ymean[d] / float64(length)
 		}
 	}
@@ -114,13 +96,10 @@ func (tsne *TSne) Step() float64 {
 // return cost and gradient, given an arrangement
 func (tsne *TSne) costGrad(Y []Point) (cost float64, grad []Point) {
 	length := tsne.length
-	dim := tsne.dim // dim of output space
 	P := tsne.probas
-	var pmul float64
+	pmul := 1.0
 	if tsne.iter < 100 { // trick that helps with local optima
 		pmul = 4.0
-	} else {
-		pmul = 1.0
 	}
 	// compute current Q distribution, unnormalized first
 	Qu := make([]float64, length*length)
@@ -128,7 +107,7 @@ func (tsne *TSne) costGrad(Y []Point) (cost float64, grad []Point) {
 	for i := 0; i < length-1; i++ {
 		for j := i + 1; j < length; j++ {
 			dsum := 0.0
-			for d := 0; d < dim; d++ {
+			for d := 0; d < nbDims; d++ {
 				dhere := Y[i][d] - Y[j][d]
 				dsum += dhere * dhere
 			}
@@ -145,19 +124,18 @@ func (tsne *TSne) costGrad(Y []Point) (cost float64, grad []Point) {
 		Q[q] = math.Max(Qu[q]/qsum, 1e-100)
 	}
 	cost = 0.0
-	grad = []Point{}
+	grad = make([]Point, length)
 	for i := 0; i < length; i++ {
-		//gsum := make(Point, dim) // init grad for point i
-		var gsum Point
+		gsum := &grad[i]
 		for j := 0; j < length; j++ {
 			// accumulate cost (the non-constant portion at least...)
-			cost += -P[i*length+j] * math.Log(Q[i*length+j])
-			premult := 4 * (pmul*P[i*length+j] - Q[i*length+j]) * Qu[i*length+j]
-			for d := 0; d < dim; d++ {
+			idx := i*length + j
+			cost += -P[idx] * math.Log(Q[idx])
+			premult := 4 * (pmul*P[idx] - Q[idx]) * Qu[idx]
+			for d := 0; d < nbDims; d++ {
 				gsum[d] += premult * (Y[i][d] - Y[j][d])
 			}
 		}
-		grad = append(grad, gsum)
 	}
 
 	return cost, grad
@@ -165,8 +143,8 @@ func (tsne *TSne) costGrad(Y []Point) (cost float64, grad []Point) {
 
 // Normalize makes all values from the solution in the interval [0; 1]
 func (tsne *TSne) NormalizeSolution() {
-	mins := make([]float64, tsne.dim)
-	maxs := make([]float64, tsne.dim)
+	var mins [nbDims]float64
+	var maxs [nbDims]float64
 	for i, pt := range tsne.Solution {
 		for j, val := range pt {
 			if i == 0 || val < mins[j] {
