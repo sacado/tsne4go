@@ -35,10 +35,10 @@ func randn(mu, std float64) float64 {
 }
 
 // returns 2d array filled with random numbers
-func randn2d(n, d int) [][]float64 {
-	res := make([][]float64, n)
+func randn2d(n, d int) []Point {
+	res := make([]Point, n)
 	for i := range res {
-		res[i] = make([]float64, d)
+		//res[i] = make(Point, d)
 		for j := range res[i] {
 			res[i][j] = randn(0.0, 1e-4)
 		}
@@ -47,10 +47,10 @@ func randn2d(n, d int) [][]float64 {
 }
 
 // returns 2d array filled with 'val'
-func fill2d(n, d int, val float64) [][]float64 {
-	res := make([][]float64, n)
+func fill2d(n, d int, val float64) []Point {
+	res := make([]Point, n)
 	for i := range res {
-		res[i] = make([]float64, d)
+		//res[i] = make(Point, d)
 		for j := range res[i] {
 			res[i][j] = val
 		}
