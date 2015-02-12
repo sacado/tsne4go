@@ -39,11 +39,11 @@ func New(x Distancer, meta []interface{}) *TSne {
 	tsne := &TSne{
 		0,      // iters
 		length, // length
-		d2p(dists, perplexity, 1e-4), // probas
+		d2p(dists, perplexity, 1e-7), // probas ( was 1e-4)
 		randn2d(length),              // Solution
 		fill2d(length, 1.0),          // gains
-		fill2d(length, 0.0),          // ystep
-		meta,                         // Meta
+		make([]Point, length),        // ystep
+		meta, // Meta
 	}
 	return tsne
 }
@@ -56,11 +56,11 @@ func (tsne *TSne) Step() float64 {
 	var ymean [nbDims]float64
 	var wg sync.WaitGroup
 	// perform gradient step
-	for i := 0; i < length; i++ {
-		go func(i int) {
+	for d := 0; d < nbDims; d++ {
+		go func(d int) {
 			wg.Add(1)
 			defer wg.Done()
-			for d := 0; d < nbDims; d++ {
+			for i := 0; i < length; i++ {
 				gid := grad[i][d]
 				sid := tsne.ystep[i][d]
 				gainid := tsne.gains[i][d]
@@ -76,19 +76,20 @@ func (tsne *TSne) Step() float64 {
 					momval = 0.5
 				}
 				newsid := momval*sid - epsilon*tsne.gains[i][d]*grad[i][d]
-				tsne.ystep[i][d] = newsid // remember the step we took
-				// step!
-				tsne.Solution[i][d] += newsid
+				tsne.ystep[i][d] = newsid       // remember the step we took
+				tsne.Solution[i][d] += newsid   // step
 				ymean[d] += tsne.Solution[i][d] // accumulate mean so that we can center later
 			}
-		}(i)
+		}(d)
 	}
 	wg.Wait()
 	// reproject Y to be zero mean
-	for i := 0; i < length; i++ {
-		for d := 0; d < nbDims; d++ {
-			tsne.Solution[i][d] -= ymean[d] / float64(length)
-		}
+	for d, mean := range ymean {
+		go func(d int) {
+			for i := 0; i < length; i++ {
+				tsne.Solution[i][d] -= mean / float64(length)
+			}
+		}(d)
 	}
 	return cost
 }
@@ -102,7 +103,8 @@ func (tsne *TSne) costGrad(Y []Point) (cost float64, grad []Point) {
 		pmul = 4.0
 	}
 	// compute current Q distribution, unnormalized first
-	Qu := make([]float64, length*length)
+	squareLength := length * length
+	Qu := make([]float64, squareLength)
 	qsum := 0.0
 	for i := 0; i < length-1; i++ {
 		for j := i + 1; j < length; j++ {
@@ -118,7 +120,6 @@ func (tsne *TSne) costGrad(Y []Point) (cost float64, grad []Point) {
 		}
 	}
 	// normalize Q distribution to sum to 1
-	squareLength := length * length
 	Q := make([]float64, squareLength)
 	for q := range Q {
 		Q[q] = math.Max(Qu[q]/qsum, 1e-100)

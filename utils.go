@@ -76,28 +76,25 @@ func xtod(x Distancer) []float64 {
 	return dists
 }
 
-// "constants" for positive and negative infinity
 var (
-	inf    = math.Inf(1)
-	negInf = math.Inf(-1)
+	inf     = math.Inf(1)          // "constant" for positive infinity
+	negInf  = math.Inf(-1)         // "constants" for negative infinity
+	Htarget = math.Log(perplexity) // target entropy of distribution
 )
 
 // compute (p_{i|j} + p_{j|i})/(2n)
 func d2p(D []float64, perplexity, tol float64) []float64 {
 	length := int(math.Sqrt(float64(len(D))))
-	Htarget := math.Log(perplexity)     // target entropy of distribution
 	P := make([]float64, length*length) // temporary probability matrix
 	prow := make([]float64, length)     // a temporary storage compartment
 	for i := 0; i < length; i++ {
 		betamin := negInf
 		betamax := inf
 		beta := 1.0 // initial value of precision
-		done := false
-		maxtries := 50
+		const maxtries = 10000
 		// perform binary search to find a suitable precision beta
 		// so that the entropy of the distribution is appropriate
-		num := 0
-		for !done {
+		for num := 0; num < maxtries; num++ {
 			// compute entropy and kernel row with beta precision
 			psum := 0.0
 			for j := 0; j < length; j++ {
@@ -105,8 +102,6 @@ func d2p(D []float64, perplexity, tol float64) []float64 {
 					pj := math.Exp(-D[i*length+j] * beta)
 					prow[j] = pj
 					psum += pj
-				} else {
-					prow[j] = 0.0
 				}
 			}
 			// normalize p and compute entropy
@@ -119,31 +114,9 @@ func d2p(D []float64, perplexity, tol float64) []float64 {
 				}
 			}
 			// adjust beta based on result
-			if Hhere > Htarget {
-				// entropy was too high (distribution too diffuse)
-				// so we need to increase the precision for more peaky distribution
-				betamin = beta // move up the bounds
-				if betamax == inf {
-					beta *= 2
-				} else {
-					beta = (beta + betamax) / 2
-				}
-			} else {
-				// converse case. make distrubtion less peaky
-				betamax = beta
-				if betamin == negInf {
-					beta = beta / 2
-				} else {
-					beta = (beta + betamin) / 2
-				}
-			}
-			// stopping conditions: too many tries or got a good precision
-			num++
-			if math.Abs(Hhere-Htarget) < tol {
-				done = true
-			}
-			if num >= maxtries {
-				done = true
+			adjustBeta(Hhere, &beta, &betamin, &betamax)
+			if math.Abs(Hhere-Htarget) < tol { // got a good precision, stop it
+				break
 			}
 		}
 		// copy over the final prow to P at row i
@@ -152,14 +125,35 @@ func d2p(D []float64, perplexity, tol float64) []float64 {
 		}
 	} // end loop over examples i
 	// symmetrize P and normalize it to sum to 1 over all ij
-	Pout := make([]float64, length*length)
+	probas := make([]float64, length*length)
 	length2 := float64(length * 2)
 	for i := 0; i < length; i++ {
 		for j := 0; j < length; j++ {
-			Pout[i*length+j] = math.Max((P[i*length+j]+P[j*length+i])/length2, 1e-100)
+			probas[i*length+j] = math.Max((P[i*length+j]+P[j*length+i])/length2, 1e-100)
 		}
 	}
-	return Pout
+	return probas
+}
+
+func adjustBeta(Hhere float64, beta, betamin, betamax *float64) {
+	if Hhere > Htarget {
+		// entropy was too high (distribution too diffuse)
+		// so we need to increase the precision for more peaky distribution
+		*betamin = *beta // move up the bounds
+		if *betamax == inf {
+			*beta *= 2
+		} else {
+			*beta = (*beta + *betamax) / 2
+		}
+	} else {
+		// converse case. make distrubtion less peaky
+		*betamax = *beta
+		if *betamin == negInf {
+			*beta /= 2
+		} else {
+			*beta = (*beta + *betamin) / 2
+		}
+	}
 }
 
 func sign(x float64) int {
