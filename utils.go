@@ -5,15 +5,7 @@ package tsne4go
 import (
 	"math"
 	"math/rand"
-	"runtime"
-	"sync"
-	"time"
 )
-
-func init() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
-	rand.Seed(time.Now().UnixNano())
-}
 
 // return 0 mean unit standard deviation random number
 func gaussRandom() float64 {
@@ -34,7 +26,7 @@ func randn(mu, std float64) float64 {
 	return mu + gaussRandom()*std
 }
 
-// returns a vector of n Point filled with random numbers
+// returns 2d array filled with random numbers
 func randn2d(n int) []Point {
 	res := make([]Point, n)
 	for i := range res {
@@ -45,7 +37,7 @@ func randn2d(n int) []Point {
 	return res
 }
 
-// returns a vector of n Point filled with 'val'
+// returns 2d array filled with 'val'
 func fill2d(n int, val float64) []Point {
 	res := make([]Point, n)
 	for i := range res {
@@ -60,38 +52,33 @@ func fill2d(n int, val float64) []Point {
 func xtod(x Distancer) []float64 {
 	length := x.Len()
 	dists := make([]float64, length*length) // allocate contiguous array
-	var wg sync.WaitGroup
 	for i := 0; i < length-1; i++ {
-		go func(i int) {
-			wg.Add(1)
-			for j := i + 1; j < length; j++ {
-				d := x.Distance(i, j)
-				dists[i*length+j] = d
-				dists[j*length+i] = d
-			}
-			wg.Done()
-		}(i)
+		for j := i + 1; j < length; j++ {
+			d := x.Distance(i, j)
+			dists[i*length+j] = d
+			dists[j*length+i] = d
+		}
 	}
-	wg.Wait()
 	return dists
 }
 
+// "constants" for positive and negative infinity
 var (
-	inf     = math.Inf(1)          // "constant" for positive infinity
-	negInf  = math.Inf(-1)         // "constants" for negative infinity
-	Htarget = math.Log(perplexity) // target entropy of distribution
+	inf     = math.Inf(1)
+	negInf  = math.Inf(-1)
+	hTarget = math.Log(perplexity) // target entropy of distribution
 )
 
 // compute (p_{i|j} + p_{j|i})/(2n)
 func d2p(D []float64, perplexity, tol float64) []float64 {
 	length := int(math.Sqrt(float64(len(D))))
-	P := make([]float64, length*length) // temporary probability matrix
-	prow := make([]float64, length)     // a temporary storage compartment
+	pTemp := make([]float64, length*length) // temporary probability matrix
+	prow := make([]float64, length)         // a temporary storage compartment
 	for i := 0; i < length; i++ {
 		betamin := negInf
 		betamax := inf
 		beta := 1.0 // initial value of precision
-		const maxtries = 10000
+		const maxtries = 500
 		// perform binary search to find a suitable precision beta
 		// so that the entropy of the distribution is appropriate
 		for num := 0; num < maxtries; num++ {
@@ -102,26 +89,46 @@ func d2p(D []float64, perplexity, tol float64) []float64 {
 					pj := math.Exp(-D[i*length+j] * beta)
 					prow[j] = pj
 					psum += pj
+				} else {
+					prow[j] = 0.0
 				}
 			}
 			// normalize p and compute entropy
-			Hhere := 0.0
+			hHere := 0.0
 			for j := 0; j < length; j++ {
 				pj := prow[j] / psum
 				prow[j] = pj
 				if pj > 1e-7 {
-					Hhere -= pj * math.Log(pj)
+					hHere -= pj * math.Log(pj)
 				}
 			}
 			// adjust beta based on result
-			adjustBeta(Hhere, &beta, &betamin, &betamax)
-			if math.Abs(Hhere-Htarget) < tol { // got a good precision, stop it
+			if hHere > hTarget {
+				// entropy was too high (distribution too diffuse)
+				// so we need to increase the precision for more peaky distribution
+				betamin = beta // move up the bounds
+				if betamax == inf {
+					beta = beta * 2
+				} else {
+					beta = (beta + betamax) / 2
+				}
+			} else {
+				// converse case. make distrubtion less peaky
+				betamax = beta
+				if betamin == negInf {
+					beta = beta / 2
+				} else {
+					beta = (beta + betamin) / 2
+				}
+			}
+			// stopping conditions: too many tries or got a good precision
+			if math.Abs(hHere-hTarget) < tol {
 				break
 			}
 		}
 		// copy over the final prow to P at row i
 		for j := 0; j < length; j++ {
-			P[i*length+j] = prow[j]
+			pTemp[i*length+j] = prow[j]
 		}
 	} // end loop over examples i
 	// symmetrize P and normalize it to sum to 1 over all ij
@@ -129,31 +136,10 @@ func d2p(D []float64, perplexity, tol float64) []float64 {
 	length2 := float64(length * 2)
 	for i := 0; i < length; i++ {
 		for j := 0; j < length; j++ {
-			probas[i*length+j] = math.Max((P[i*length+j]+P[j*length+i])/length2, 1e-100)
+			probas[i*length+j] = math.Max((pTemp[i*length+j]+pTemp[j*length+i])/length2, 1e-100)
 		}
 	}
 	return probas
-}
-
-func adjustBeta(Hhere float64, beta, betamin, betamax *float64) {
-	if Hhere > Htarget {
-		// entropy was too high (distribution too diffuse)
-		// so we need to increase the precision for more peaky distribution
-		*betamin = *beta // move up the bounds
-		if *betamax == inf {
-			*beta *= 2
-		} else {
-			*beta = (*beta + *betamax) / 2
-		}
-	} else {
-		// converse case. make distrubtion less peaky
-		*betamax = *beta
-		if *betamin == negInf {
-			*beta /= 2
-		} else {
-			*beta = (*beta + *betamin) / 2
-		}
-	}
 }
 
 func sign(x float64) int {
